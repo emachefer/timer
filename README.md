@@ -1,1 +1,5 @@
-# Buildmkdir build && cd build && cmake ..make# Usetimer -hto display help
+# Build
+mkdir build && cd build && cmake ..
+make
+# Use
+timer -hto display help
