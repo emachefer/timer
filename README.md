@@ -2,4 +2,5 @@
 mkdir build && cd build && cmake ..
 make
 # Use
-timer -hto display help
+To display help use
+timer -h
