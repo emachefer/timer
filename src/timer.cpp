@@ -1,5 +1,4 @@
 #include <iostream>
-#include <iomanip>
 #include <chrono>
 #include <thread>
 #include <vector>
@@ -7,18 +6,20 @@
 /**
  * TODO
  * 1. Improve arg parser
- *    - regex to parse time
+ *    - regex to parse time (?)
  * 2. Loops
  *    - while(): use atomic bool to pause
  * 3. Mecanism
  *    - add a real pause() function
  *    - save times in vector
+ * 4. Display
+ *    - check terminal width
  */
 
 template<typename Period>
 using duration = std::chrono::duration<long int, Period>;
 
-using namespace std::chrono_literals;  
+using namespace std::chrono_literals;
 
 
 #ifdef __linux__
@@ -43,43 +44,56 @@ int getch()
 template<class Period>
 void display_time(const duration<Period>& ms)
 {
+  const auto d = std::chrono::duration_cast<std::chrono::days>(ms);
   const auto h = std::chrono::duration_cast<std::chrono::hours>(ms);
   const auto min = std::chrono::duration_cast<std::chrono::minutes>(ms);
   const auto s = std::chrono::duration_cast<std::chrono::seconds>(ms);
 
   auto display = [&](int time, const char *rep){
-    return std::to_string(time).append(rep);
+    if (time == 0)
+      return std::string{};
+    else
+      return std::to_string(time).append(rep);
   };
-  const auto h_mod = h.count()%60;
+
+  const auto d_mod = d.count();
+  const auto h_mod = h.count()%24;
   const auto m_mod = min.count()%60;
   const auto s_mod = s.count()%60;
 
   std::cout << "\x1b[J" // ANSI erase line
-	    << (h_mod == 0?"":display(h_mod, " h "))
-	    << (m_mod == 0?"":display(m_mod, " min "))
-	    << (s_mod == 0?"":display(s_mod, " s "))
+	    << display(d_mod, " d ")
+	    << display(h_mod, " h ")
+	    << display(m_mod, " min ")
+	    << display(s_mod, " s ")
 	    << std::flush << '\r';
 }
 
 template<class Period>
 void display_bar(const duration<Period>& ms)
 {
+  const auto d = std::chrono::duration_cast<std::chrono::days>(ms);
   const auto h = std::chrono::duration_cast<std::chrono::hours>(ms);
   const auto min = std::chrono::duration_cast<std::chrono::minutes>(ms);
   const auto s = std::chrono::duration_cast<std::chrono::seconds>(ms);
 
   auto display = [&](const char* color, int time, const char *rep){
-    return std::string(color).append(std::to_string(time)).append(rep).append(time, ' ');
+    if (time == 0)
+      return std::string{};
+    else
+      return std::string(color).append(std::to_string(time)).append(rep).append(time, ' ');
   };
 
-  const auto h_mod = h.count()%60;
+  const auto d_mod = d.count();
+  const auto h_mod = h.count()%24;
   const auto m_mod = min.count()%60;
   const auto s_mod = s.count()%60;
 
   std::cout << "\x1b[J\x1b[1m"
-	    << (h_mod == 0?"":display("\x1b[43m ", h_mod, " h "))
-	    << (m_mod == 0?"":display("\x1b[42m ", m_mod, " min "))
-	    << (s_mod == 0?"":display("\x1b[44m ", s_mod, " s "))
+	    << display("\x1b[45m ", d_mod, " d ")
+	    << display("\x1b[43m ", h_mod, " h ")
+	    << display("\x1b[42m ", m_mod, " min ")
+	    << display("\x1b[44m ", s_mod, " s ")
 	    << "\x1b[0m"
 	    << std::flush << '\r';
 }
@@ -123,6 +137,7 @@ void timer(bool bar=false)
 
 void keyboard_handler()
 {
+  // TODO
   while(true) {
     auto to_int = [](char c){return static_cast<int>(c);};
     int ch = getch();
@@ -131,11 +146,12 @@ void keyboard_handler()
       break; // do nothing: this key isn't used
     case to_int('\n'):
     case to_int('p'):
-      std::puts("\x1b[25C <= pause");
+      std::puts("");
       break;
     case to_int('q'):
     case 27:// ESC KEY
-      exit(0); 
+      std::puts("");
+      exit(0);
     }
   }
 }
@@ -148,7 +164,7 @@ with [OPTION]
 -h show help
 -c [DURATION] use countdown with duration
 -t use timer (quit with Ctrl+C or 'q')
--b display bar
+-b display bar (only work with ANSI)
 )!";
 }
 
@@ -157,21 +173,36 @@ int main(int argc, char *argv[])
 {
   // Each timing function is launched in a thread
   // Another thread is used to check inputs
+  bool display_countdown = false;
+  bool display_timer = false;
+  bool use_bars = false;
+  int read_duration = 0;
   std::vector<std::thread> vthread;
   for(int i = 0; i != argc; ++i) {
-    if (std::string(argv[i]).compare("-c") == 0) {
-      int read_duration = std::stoi(argv[i+1]);
-      // FIXME unused variable but needed for the good implementation of the lambda: std::chrono::seconds(read_duration) is not initialized
-      std::chrono::seconds sec{1};
-      auto countdown_impl=[&read_duration](){
-	countdown(std::chrono::seconds(read_duration), true);};
-      vthread.emplace_back(std::thread(countdown_impl));
-    } else if (std::string(argv[i]).compare("-t") == 0) {
-      vthread.emplace_back(timer, true);
-    } else if (std::string(argv[i]).compare("-h") == 0 || argc == 1){
-      help();
-      return 0;
+    auto arg_cmp = [](const char* arg, const char* o) {
+      return (std::string(arg).compare(o) == 0);
+    };
+    if (arg_cmp(argv[i], "-c")) {
+      read_duration = std::stoi(argv[i+1]);
+      display_countdown = true;
+    } else if (arg_cmp(argv[i], "-t")) {
+      //      vthread.emplace_back(timer, true);
+      display_timer = true;
+    } else if(arg_cmp(argv[i], "-b")) {
+      use_bars = true;
     }
+  }
+
+  if (display_timer) {
+    vthread.emplace_back(timer, use_bars);
+  } else if (display_countdown) {
+    std::chrono::seconds sec{1};
+    auto countdown_impl=[&read_duration, &use_bars](){
+      countdown(std::chrono::seconds(read_duration), use_bars);};
+    vthread.emplace_back(std::thread(countdown_impl));
+  } else {
+    help();
+    return 0;
   }
   vthread.emplace_back(std::thread(keyboard_handler));
   for(auto &t:vthread) {
